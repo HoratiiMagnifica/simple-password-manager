@@ -24,7 +24,6 @@ class BaseItem(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_viewed = db.Column(db.DateTime)
 
 class Password(BaseItem):
     __tablename__ = 'passwords'
@@ -43,8 +42,9 @@ class Card(BaseItem):
     cvv = db.Column(db.String(10))
 
 class CustomField(db.Model):
+    __tablename__ = 'custom_fields'
     id = db.Column(db.Integer, primary_key=True)
-    item_type = db.Column(db.String(20))  # 'password', 'phone', 'card'
+    item_type = db.Column(db.String(20))   # Вот это поле обязательно!
     item_id = db.Column(db.Integer)
     field_name = db.Column(db.String(100))
     field_value = db.Column(db.String(200))
@@ -87,10 +87,6 @@ def manager():
         return redirect(url_for('login'))
     return render_template('manager.html', username=session['username'])
 
-# Helper function to update last viewed
-def update_last_viewed(item):
-    item.last_viewed = datetime.utcnow()
-    db.session.commit()
 
 # Get all items
 @app.route('/api/items/<item_type>', methods=['GET'])
@@ -115,7 +111,6 @@ def get_items(item_type):
             'notes': item.notes,
             'created_at': item.created_at.isoformat() if item.created_at else None,
             'updated_at': item.updated_at.isoformat() if item.updated_at else None,
-            'last_viewed': item.last_viewed.isoformat() if item.last_viewed else None,
             'custom_fields': custom_fields
         }
         
@@ -149,8 +144,6 @@ def get_item(item_type, item_id):
     if item.user_id != session['user_id']:
         return jsonify({'error': 'No permission'}), 403
     
-    # Update last viewed
-    update_last_viewed(item)
     
     fields = CustomField.query.filter_by(item_type=item_type, item_id=item.id).all()
     custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
@@ -161,7 +154,6 @@ def get_item(item_type, item_id):
         'notes': item.notes,
         'created_at': item.created_at.isoformat() if item.created_at else None,
         'updated_at': item.updated_at.isoformat() if item.updated_at else None,
-        'last_viewed': item.last_viewed.isoformat() if item.last_viewed else None,
         'custom_fields': custom_fields
     }
     

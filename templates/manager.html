@@ -388,7 +388,6 @@
                 <div class="timestamp-info" id="timestampInfo" style="display: none;">
                     <div>📅 Created: <span id="createdAt"></span></div>
                     <div>✏️ Modified: <span id="updatedAt"></span></div>
-                    <div>👁️ Last viewed: <span id="lastViewed"></span></div>
                 </div>
 
                 <div class="form-group">
@@ -606,7 +605,6 @@
                 // Show timestamps
                 document.getElementById('createdAt').textContent = item.created_at ? new Date(item.created_at).toLocaleString() : 'Never';
                 document.getElementById('updatedAt').textContent = item.updated_at ? new Date(item.updated_at).toLocaleString() : 'Never';
-                document.getElementById('lastViewed').textContent = item.last_viewed ? new Date(item.last_viewed).toLocaleString() : 'Never';
                 document.getElementById('timestampInfo').style.display = 'block';
                 document.getElementById('copySection').style.display = 'block';
                 
@@ -670,35 +668,79 @@
             let text = '';
             const type = document.getElementById('itemType').value;
             
-            text += `Title: ${document.getElementById('title').value}\n`;
+            // Название
+            const title = document.getElementById('title')?.value || '';
+            text += `Title: ${title}\n`;
             
+            // В зависимости от типа
             if (type === 'passwords') {
-                text += `Username: ${document.getElementById('username').value}\n`;
-                text += `Password: ${document.getElementById('password').value}\n`;
-            } else if (type === 'phones') {
-                text += `Phone: ${document.getElementById('phoneNumber').value}\n`;
-                text += `Operator: ${document.getElementById('operator').value}\n`;
-            } else if (type === 'cards') {
-                text += `Card: ${document.getElementById('cardNumber').value}\n`;
-                text += `Expiry: ${document.getElementById('expiryDate').value}\n`;
-                text += `CVV: ${document.getElementById('cvv').value}\n`;
+                const username = document.getElementById('username')?.value || '';
+                const password = document.getElementById('password')?.value || '';
+                text += `Username: ${username}\n`;
+                text += `Password: ${password}\n`;
+            } 
+            else if (type === 'phones') {
+                const phoneNumber = document.getElementById('phoneNumber')?.value || '';
+                const operator = document.getElementById('operator')?.value || '';
+                text += `Phone: ${phoneNumber}\n`;
+                text += `Operator: ${operator}\n`;
+            } 
+            else if (type === 'cards') {
+                const cardNumber = document.getElementById('cardNumber')?.value || '';
+                const expiryDate = document.getElementById('expiryDate')?.value || '';
+                const cvv = document.getElementById('cvv')?.value || '';
+                text += `Card: ${cardNumber}\n`;
+                text += `Expiry: ${expiryDate}\n`;
+                text += `CVV: ${cvv}\n`;
             }
             
-            if (document.getElementById('notes').value) {
-                text += `Notes: ${document.getElementById('notes').value}\n`;
+            // Заметки
+            const notes = document.getElementById('notes')?.value || '';
+            if (notes) {
+                text += `Notes: ${notes}\n`;
             }
             
-            document.querySelectorAll('.custom-field').forEach(field => {
-                const name = field.querySelector('.field-name').value;
-                const value = field.querySelector('.field-value').value;
-                if (name && value) {
-                    text += `${name}: ${value}\n`;
+            // Кастомные поля
+            const customFields = document.querySelectorAll('.custom-field');
+            if (customFields.length > 0) {
+                text += `\n--- Custom Fields ---\n`;
+                customFields.forEach(field => {
+                    const name = field.querySelector('.field-name')?.value || '';
+                    const value = field.querySelector('.field-value')?.value || '';
+                    if (name && value) {
+                        text += `${name}: ${value}\n`;
+                    }
+                });
+            }
+            
+            // СОЗДАЕМ ВРЕМЕННОЕ ПОЛЕ ДЛЯ КОПИРОВАНИЯ
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            document.body.appendChild(textarea);
+            
+            // ВЫДЕЛЯЕМ ТЕКСТ
+            textarea.select();
+            textarea.setSelectionRange(0, 99999);
+            
+            // КОПИРУЕМ
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    alert('✅ Скопировано в буфер обмена!');
+                } else {
+                    alert('❌ Не удалось скопировать. Выделите текст вручную:\n\n' + text);
                 }
-            });
+            } catch (err) {
+                console.error('Ошибка копирования:', err);
+                alert('❌ Ошибка копирования. Выделите текст вручную:\n\n' + text);
+            }
             
-            navigator.clipboard.writeText(text).then(() => {
-                alert('✅ All fields copied to clipboard!');
-            });
+            // УДАЛЯЕМ ВРЕМЕННОЕ ПОЛЕ
+            document.body.removeChild(textarea);
         }
 
         document.getElementById('itemForm').addEventListener('submit', async (e) => {
