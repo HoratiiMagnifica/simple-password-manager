@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Менеджер паролей</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f5f5;
+        }
+
+        .navbar {
+            background: white;
+            padding: 15px 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .nav-brand {
+            font-size: 20px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .nav-user {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .logout-btn {
+            padding: 8px 16px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .logout-btn:hover {
+            background: #d32f2f;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .search-section {
+            margin-bottom: 30px;
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        .search-box:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .add-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: transform 0.2s;
+        }
+
+        .add-btn:hover {
+            transform: translateY(-2px);
+        }
+
+        .passwords-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+
+        .password-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .password-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.15);
+        }
+
+        .password-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .password-username {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+
+        .password-meta {
+            color: #999;
+            font-size: 12px;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            overflow-y: auto;
+        }
+
+        .modal.active {
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 20px;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            max-width: 600px;
+            width: 100%;
+            margin: 20px auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #999;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+
+        .custom-fields {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .custom-field {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .remove-field {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .add-field-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .save-btn {
+            flex: 1;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .delete-btn {
+            padding: 12px 24px;
+            background: #f44336;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .password-field {
+            position: relative;
+        }
+
+        .toggle-password {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #666;
+        }
+
+        .copy-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            cursor: pointer;
+            margin-left: 10px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            background: white;
+            border-radius: 10px;
+            color: #999;
+        }
+
+        @media (max-width: 768px) {
+            .passwords-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .modal-content {
+                padding: 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <div class="nav-brand">🔐 Менеджер паролей</div>
+        <div class="nav-user">
+            <span>👤 {{ username }}</span>
+            <button class="logout-btn" onclick="logout()">Выйти</button>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="search-section">
+            <input type="text" class="search-box" placeholder="🔍 Поиск паролей..." id="searchInput">
+        </div>
+
+        <button class="add-btn" onclick="openAddModal()">+ Добавить пароль</button>
+
+        <div id="passwordsContainer" class="passwords-grid"></div>
+    </div>
+
+    <!-- Модальное окно для добавления/редактирования -->
+    <div class="modal" id="passwordModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Добавить пароль</h2>
+                <button class="close-btn" onclick="closeModal()">&times;</button>
+            </div>
+
+            <form id="passwordForm">
+                <input type="hidden" id="passwordId">
+
+                <div class="form-group">
+                    <label for="title">Название *</label>
+                    <input type="text" id="title" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="username">Логин</label>
+                    <input type="text" id="username">
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Пароль</label>
+                    <div class="password-field">
+                        <input type="password" id="password">
+                        <span class="toggle-password" onclick="togglePassword('password')">👁️</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="notes">Заметки</label>
+                    <textarea id="notes"></textarea>
+                </div>
+
+                <div class="custom-fields">
+                    <h3>Дополнительные поля</h3>
+                    <div id="customFields"></div>
+                    <button type="button" class="add-field-btn" onclick="addCustomField()">+ Добавить поле</button>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="submit" class="save-btn">Сохранить</button>
+                    <button type="button" class="delete-btn" id="deleteBtn" onclick="deletePassword()">Удалить</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        let currentPasswordId = null;
+        let searchTimeout = null;
+
+        // Загрузка паролей при загрузке страницы
+        document.addEventListener('DOMContentLoaded', loadPasswords);
+
+        // Поиск с задержкой
+        document.getElementById('searchInput').addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                const query = this.value;
+                if (query.length >= 2) {
+                    searchPasswords(query);
+                } else {
+                    loadPasswords();
+                }
+            }, 300);
+        });
+
+        async function loadPasswords() {
+            try {
+                const response = await fetch('/api/passwords');
+                const passwords = await response.json();
+                displayPasswords(passwords);
+            } catch (error) {
+                console.error('Error loading passwords:', error);
+            }
+        }
+
+        async function searchPasswords(query) {
+            try {
+                const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                const passwords = await response.json();
+                displayPasswords(passwords);
+            } catch (error) {
+                console.error('Error searching passwords:', error);
+            }
+        }
+
+        function displayPasswords(passwords) {
+            const container = document.getElementById('passwordsContainer');
+            
+            if (passwords.length === 0) {
+                container.innerHTML = '<div class="empty-state">🔍 Пароли не найдены</div>';
+                return;
+            }
+
+            container.innerHTML = passwords.map(p => `
+                <div class="password-card" onclick="openEditModal(${p.id})">
+                    <div class="password-title">${escapeHtml(p.title)}</div>
+                    <div class="password-username">👤 ${escapeHtml(p.username || 'Нет логина')}</div>
+                    <div class="password-meta">📅 ${new Date(p.created_at).toLocaleDateString()}</div>
+                    ${p.custom_fields && p.custom_fields.length > 0 ? 
+                        `<div class="password-meta">📋 ${p.custom_fields.length} доп. полей</div>` : ''}
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function openAddModal() {
+            currentPasswordId = null;
+            document.getElementById('modalTitle').textContent = 'Добавить пароль';
+            document.getElementById('passwordForm').reset();
+            document.getElementById('passwordId').value = '';
+            document.getElementById('customFields').innerHTML = '';
+            document.getElementById('deleteBtn').style.display = 'none';
+            document.getElementById('passwordModal').classList.add('active');
+        }
+
+        async function openEditModal(id) {
+            try {
+                const response = await fetch(`/api/passwords/${id}`);
+                const password = await response.json();
+                
+                currentPasswordId = id;
+                document.getElementById('modalTitle').textContent = 'Редактировать пароль';
+                document.getElementById('passwordId').value = id;
+                document.getElementById('title').value = password.title;
+                document.getElementById('username').value = password.username || '';
+                document.getElementById('password').value = password.password || '';
+                document.getElementById('notes').value = password.notes || '';
+                
+                // Отображение кастомных полей
+                const customFieldsContainer = document.getElementById('customFields');
+                customFieldsContainer.innerHTML = '';
+                
+                if (password.custom_fields) {
+                    password.custom_fields.forEach(field => {
+                        addCustomField(field.name, field.value);
+                    });
+                }
+                
+                document.getElementById('deleteBtn').style.display = 'block';
+                document.getElementById('passwordModal').classList.add('active');
+            } catch (error) {
+                console.error('Error loading password:', error);
+                alert('Ошибка загрузки пароля');
+            }
+        }
+
+        function closeModal() {
+            document.getElementById('passwordModal').classList.remove('active');
+        }
+
+        function addCustomField(name = '', value = '') {
+            const container = document.getElementById('customFields');
+            const fieldDiv = document.createElement('div');
+            fieldDiv.className = 'custom-field';
+            fieldDiv.innerHTML = `
+                <input type="text" placeholder="Название поля" value="${escapeHtml(name)}" class="field-name">
+                <input type="text" placeholder="Значение" value="${escapeHtml(value)}" class="field-value">
+                <button type="button" class="remove-field" onclick="this.parentElement.remove()">✕</button>
+            `;
+            container.appendChild(fieldDiv);
+        }
+
+        function togglePassword(fieldId) {
+            const field = document.getElementById(fieldId);
+            field.type = field.type === 'password' ? 'text' : 'password';
+        }
+
+        document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            // Сбор кастомных полей
+            const customFields = [];
+            document.querySelectorAll('.custom-field').forEach(field => {
+                const name = field.querySelector('.field-name').value;
+                const value = field.querySelector('.field-value').value;
+                if (name && value) {
+                    customFields.push({ name, value });
+                }
+            });
+
+            const passwordData = {
+                title: document.getElementById('title').value,
+                username: document.getElementById('username').value,
+                password: document.getElementById('password').value,
+                notes: document.getElementById('notes').value,
+                custom_fields: customFields
+            };
+
+            const id = document.getElementById('passwordId').value;
+            const url = id ? `/api/passwords/${id}` : '/api/passwords';
+            const method = id ? 'PUT' : 'POST';
+
+            try {
+                const response = await fetch(url, {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(passwordData)
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    loadPasswords();
+                } else {
+                    alert('Ошибка сохранения');
+                }
+            } catch (error) {
+                console.error('Error saving password:', error);
+                alert('Ошибка сохранения');
+            }
+        });
+
+        async function deletePassword() {
+            if (!confirm('Вы уверены, что хотите удалить этот пароль?')) {
+                return;
+            }
+
+            const id = document.getElementById('passwordId').value;
+            
+            try {
+                const response = await fetch(`/api/passwords/${id}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    closeModal();
+                    loadPasswords();
+                } else {
+                    alert('Ошибка удаления');
+                }
+            } catch (error) {
+                console.error('Error deleting password:', error);
+                alert('Ошибка удаления');
+            }
+        }
+
+        async function logout() {
+            await fetch('/logout');
+            window.location.href = '/login';
+        }
+
+        // Закрытие модального окна при клике вне его
+        window.onclick = function(event) {
+            const modal = document.getElementById('passwordModal');
+            if (event.target === modal) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>
