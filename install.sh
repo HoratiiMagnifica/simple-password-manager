@@ -1,141 +1,115 @@
 #!/bin/bash
 
-# Цвета для вывода
-RED='\033[0;31m'
 GREEN='\033[0;32m'
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${GREEN}🚀 Установка менеджера паролей...${NC}"
 
-# Обновление системы
-sudo apt update && sudo apt upgrade -y
+# Проверка root
+if [[ $EUID -ne 0 ]]; then
+   echo -e "${RED}Запустите с sudo: sudo ./install.sh${NC}"
+   exit 1
+fi
 
 # Установка зависимостей
-sudo apt install -y python3-pip python3-venv nginx ufw
-
-# Создание структуры папок
-mkdir -p ~/password-manager/{templates,ssl}
-
-# Переход в папку проекта
-cd ~/password-manager
+apt update
+apt install -y python3-pip python3-venv ufw
 
 # Создание виртуального окружения
+cd /var/www/simple-password-manager
 python3 -m venv venv
 source venv/bin/activate
 
-# Установка Python пакетов
-pip install flask flask-login flask-sqlalchemy cryptography argon2-cffi gunicorn pyotp qrcode Pillow python-dotenv
+# Установка пакетов
+pip install --upgrade pip
+pip install flask flask-login flask-sqlalchemy cryptography argon2-cffi
 
-# Создание app.py (вставьте сюда полный код из предыдущего сообщения)
-cat > app.py << 'EOF'
-[ВСТАВЬТЕ СЮДА ПОЛНЫЙ КОД APP.PY ИЗ ПРЕДЫДУЩЕГО СООБЩЕНИЯ]
-EOF
-
-# Создание шаблонов
-mkdir -p templates
-cat > templates/login.html << 'EOF'
-[ВСТАВЬТЕ СЮДА ПОЛНЫЙ КОД LOGIN.HTML]
-EOF
-
-cat > templates/manager.html << 'EOF'
-[ВСТАВЬТЕ СЮДА ПОЛНЫЙ КОД MANAGER.HTML]
-EOF
-
-# Создание .env файла
+# Создание .env
 cat > .env << EOF
 SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-ENCRYPTION_KEY=$(python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())")
-DATABASE_URL=sqlite:////home/$(whoami)/password-manager/passwords.db
+DATABASE_URL=sqlite:////var/www/simple-password-manager/passwords.db
+PORT=8444
 EOF
 
-# Создание сервиса systemd
-sudo bash -c 'cat > /etc/systemd/system/password-manager.service << EOF
+# Создание systemd сервиса
+cat > /etc/systemd/system/password-manager.service << EOF
 [Unit]
 Description=Password Manager
 After=network.target
 
 [Service]
-User='$(whoami)'
-Group='$(whoami)'
-WorkingDirectory=/home/$(whoami)/password-manager
-Environment="PATH=/home/$(whoami)/password-manager/venv/bin"
-EnvironmentFile=/home/$(whoami)/password-manager/.env
-ExecStart=/home/$(whoami)/password-manager/venv/bin/python /home/$(whoami)/password-manager/app.py
+User=root
+Group=root
+WorkingDirectory=/var/www/simple-password-manager
+Environment="PATH=/var/www/simple-password-manager/venv/bin"
+EnvironmentFile=/var/www/simple-password-manager/.env
+ExecStart=/var/www/simple-password-manager/venv/bin/python /var/www/simple-password-manager/app.py
 Restart=always
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
-EOF'
+EOF
 
-# Создание самоподписанного SSL сертификата (для HTTPS)
-openssl req -x509 -newkey rsa:4096 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes -subj "/CN=localhost"
-
-# Настройка Nginx
-sudo bash -c 'cat > /etc/nginx/sites-available/password-manager << EOF
-server {
-    listen 80;
-    server_name _;
-    return 301 https://\$server_name\$request_uri;
-}
-
-server {
-    listen 443 ssl;
-    server_name _;
-
-    ssl_certificate /home/$(whoami)/password-manager/ssl/cert.pem;
-    ssl_certificate_key /home/$(whoami)/password-manager/ssl/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:5000;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-    }
-}
-EOF'
-
-# Активация Nginx конфигурации
-sudo ln -sf /etc/nginx/sites-available/password-manager /etc/nginx/sites-enabled/
-sudo nginx -t && sudo systemctl restart nginx
-
-# Создание первого пользователя
+# Создание пользователя admin
 source venv/bin/activate
 python3 << EOF
 from app import app, db, User
 from argon2 import PasswordHasher
+import secrets
+import string
 
 ph = PasswordHasher()
 
 with app.app_context():
     db.create_all()
-    # Создание пользователя admin с паролем admin123 (ИЗМЕНИТЕ ПОТОМ!)
-    if not User.query.filter_by(username='admin').first():
-        user = User(
-            username='admin',
-            password_hash=ph.hash('admin123')
-        )
-        db.session.add(user)
-        db.session.commit()
-        print("✅ Пользователь admin создан (пароль: admin123)")
+    
+    # Удаляем старого admin если есть
+    User.query.filter_by(username='admin').delete()
+    
+    # Генерируем пароль
+    password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
+    
+    user = User(
+        username='admin',
+        password_hash=ph.hash(password)
+    )
+    db.session.add(user)
+    db.session.commit()
+    
+    with open('/root/password_manager_credentials.txt', 'w') as f:
+        f.write(f"URL: http://$(curl -s ifconfig.me):8444\n")
+        f.write(f"Login: admin\n")
+        f.write(f"Password: {password}\n")
+    
+    print(f"\n✅ Пользователь admin создан")
 EOF
 
+# Открыть порт
+ufw allow 8444/tcp
+ufw --force enable
+
 # Запуск сервиса
-sudo systemctl daemon-reload
-sudo systemctl enable password-manager
-sudo systemctl start password-manager
+systemctl daemon-reload
+systemctl enable password-manager
+systemctl start password-manager
+sleep 3
 
-# Настройка файрвола
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-echo "y" | sudo ufw enable
+# Проверка
+if systemctl is-active --quiet password-manager; then
+    echo -e "${GREEN}✅ Сервис запущен${NC}"
+else
+    echo -e "${RED}❌ Ошибка запуска сервиса${NC}"
+    systemctl status password-manager --no-pager
+fi
 
-# Получение IP адреса
 IP=$(curl -s ifconfig.me)
-
+echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
 echo -e "${GREEN}✅ Установка завершена!${NC}"
-echo -e "${GREEN}🌐 Откройте браузер и перейдите по адресу: https://$IP${NC}"
-echo -e "${RED}⚠️  ВАЖНО: Смените пароль администратора после первого входа!${NC}"
-echo -e "${RED}👤 Логин: admin${NC}"
-echo -e "${RED}🔑 Пароль: admin123${NC}"
+echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}🌐 Откройте браузер: http://$IP:8444${NC}"
+echo -e "${RED}══════════════════════════════════════════════════${NC}"
+cat /root/password_manager_credentials.txt 2>/dev/null || echo -e "${RED}❌ Файл с паролем не найден${NC}"
+echo -e "${RED}══════════════════════════════════════════════════${NC}"
