@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Менеджер паролей - Вход</title>
+    <title>Password Manager - Login</title>
     <style>
         * {
             margin: 0;
@@ -137,36 +137,36 @@
 </head>
 <body>
     <div class="container">
-        <h1>🔐 Менеджер паролей</h1>
+        <h1>🔐 Password Manager</h1>
         
         <div class="info">
-            Войдите в систему, используя ваш мастер-пароль
+            Login with your master password
         </div>
         
         <form id="loginForm">
             <div class="form-group">
-                <label for="username">Имя пользователя</label>
+                <label for="username">Username</label>
                 <input type="text" id="username" required>
             </div>
             
             <div class="form-group">
-                <label for="password">Пароль</label>
+                <label for="password">Password</label>
                 <input type="password" id="password" required>
             </div>
             
             <div class="totp-section" id="totpSection">
                 <div class="form-group">
-                    <label for="totp">Код двухфакторной аутентификации</label>
+                    <label for="totp">2FA Code</label>
                     <input type="text" id="totp" placeholder="000000" maxlength="6">
                 </div>
             </div>
             
-            <button type="submit" id="submitBtn">Войти</button>
+            <button type="submit" id="submitBtn">Login</button>
         </form>
         
         <div class="loading" id="loading">
             <div class="spinner"></div>
-            <p style="text-align: center;">Вход в систему...</p>
+            <p style="text-align: center;">Logging in...</p>
         </div>
         
         <div class="error" id="error"></div>
@@ -220,11 +220,11 @@
                         window.location.href = '/manager';
                     }
                 } else {
-                    showError(data.error || 'Ошибка входа');
+                    showError(data.error || 'Login failed');
                     resetForm();
                 }
             } catch (error) {
-                showError('Ошибка соединения с сервером');
+                showError('Connection error');
                 resetForm();
             }
         });

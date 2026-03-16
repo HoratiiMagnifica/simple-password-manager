@@ -11,7 +11,6 @@ app.config['PERMANENT_SESSION_LIFETIME'] = 1800
 
 db = SQLAlchemy(app)
 
-# Модели
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True)
@@ -32,7 +31,6 @@ class CustomField(db.Model):
     field_name = db.Column(db.String(100))
     field_value = db.Column(db.String(200))
 
-# Создаем таблицы
 with app.app_context():
     db.create_all()
 
@@ -71,7 +69,6 @@ def manager():
         return redirect(url_for('login'))
     return render_template('manager.html', username=session['username'])
 
-# ВСЕ ПАРОЛИ
 @app.route('/api/passwords', methods=['GET'])
 def get_passwords():
     if 'user_id' not in session:
@@ -92,7 +89,6 @@ def get_passwords():
         })
     return jsonify(result)
 
-# КОНКРЕТНЫЙ ПАРОЛЬ (ВАЖНО - ЭТОГО НЕ ХВАТАЛО!)
 @app.route('/api/passwords/<int:password_id>', methods=['GET'])
 def get_password(password_id):
     if 'user_id' not in session:
