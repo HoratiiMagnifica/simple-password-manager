@@ -1,63 +1,41 @@
 import os
-import base64
-from datetime import datetime
-from functools import wraps
-
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_sqlalchemy import SQLAlchemy
-from cryptography.fernet import Fernet
-from argon2 import PasswordHasher
-from argon2.exceptions import VerifyMismatchError
+from datetime import datetime
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(32).hex())
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'simple-key-12345')
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///passwords.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800
-app.config['SESSION_COOKIE_SECURE'] = False  # False для HTTP
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 db = SQLAlchemy(app)
-ph = PasswordHasher()
 
 # Модели
 class User(db.Model):
-    __tablename__ = 'users'
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(200), nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    passwords = db.relationship('PasswordEntry', backref='owner', lazy=True)
+    username = db.Column(db.String(80), unique=True)
+    password = db.Column(db.String(200))
 
-class PasswordEntry(db.Model):
-    __tablename__ = 'passwords'
+class Password(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    title = db.Column(db.String(200), nullable=False)
-    username = db.Column(db.String(200))
-    encrypted_password = db.Column(db.Text, nullable=False)
+    user_id = db.Column(db.Integer)
+    title = db.Column(db.String(200))
+    login = db.Column(db.String(200))
+    pwd = db.Column(db.String(200))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    custom_fields = db.relationship('CustomField', backref='password_entry', lazy=True, cascade='all, delete-orphan')
 
 class CustomField(db.Model):
-    __tablename__ = 'custom_fields'
     id = db.Column(db.Integer, primary_key=True)
-    password_id = db.Column(db.Integer, db.ForeignKey('passwords.id'), nullable=False)
-    field_name = db.Column(db.String(100), nullable=False)
-    field_value = db.Column(db.Text)
+    password_id = db.Column(db.Integer)
+    field_name = db.Column(db.String(100))
+    field_value = db.Column(db.String(200))
 
-# Декоратор авторизации
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return jsonify({'error': 'Not authenticated'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+# Создаем таблицы
+with app.app_context():
+    db.create_all()
 
-# Маршруты
 @app.route('/')
 def index():
     if 'user_id' in session:
@@ -73,19 +51,14 @@ def login():
     username = data.get('username')
     password = data.get('password')
     
-    user = User.query.filter_by(username=username).first()
+    user = User.query.filter_by(username=username, password=password).first()
     
-    if not user:
-        return jsonify({'error': 'Invalid credentials'}), 401
-    
-    try:
-        ph.verify(user.password_hash, password)
-        session.permanent = True
+    if user:
         session['user_id'] = user.id
         session['username'] = user.username
         return jsonify({'success': True})
-    except VerifyMismatchError:
-        return jsonify({'error': 'Invalid credentials'}), 401
+    
+    return jsonify({'error': 'Invalid credentials'}), 401
 
 @app.route('/logout')
 def logout():
@@ -93,74 +66,77 @@ def logout():
     return redirect(url_for('login'))
 
 @app.route('/manager')
-@login_required
 def manager():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
     return render_template('manager.html', username=session['username'])
 
+# ВСЕ ПАРОЛИ
 @app.route('/api/passwords', methods=['GET'])
-@login_required
 def get_passwords():
-    passwords = PasswordEntry.query.filter_by(user_id=session['user_id']).all()
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    passwords = Password.query.filter_by(user_id=session['user_id']).all()
     result = []
     for p in passwords:
+        fields = CustomField.query.filter_by(password_id=p.id).all()
+        custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
+        
         result.append({
             'id': p.id,
             'title': p.title,
-            'username': p.username,
+            'username': p.login,
             'notes': p.notes,
-            'created_at': p.created_at.isoformat() if p.created_at else None,
-            'custom_fields': [{'name': f.field_name, 'value': f.field_value} for f in p.custom_fields]
+            'custom_fields': custom_fields
         })
     return jsonify(result)
 
+# КОНКРЕТНЫЙ ПАРОЛЬ (ВАЖНО - ЭТОГО НЕ ХВАТАЛО!)
 @app.route('/api/passwords/<int:password_id>', methods=['GET'])
-@login_required
 def get_password(password_id):
-    p = PasswordEntry.query.get_or_404(password_id)
-    if p.user_id != session['user_id']:
-        return jsonify({'error': 'Unauthorized'}), 403
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
     
-    # Для простоты используем фиктивный ключ (в реальном проекте нужно хранить ключ в сессии)
-    cipher = Fernet(base64.urlsafe_b64encode(b'0' * 32))
-    try:
-        decrypted = cipher.decrypt(p.encrypted_password.encode()).decode()
-    except:
-        decrypted = "********"
+    p = Password.query.get_or_404(password_id)
+    if p.user_id != session['user_id']:
+        return jsonify({'error': 'No permission'}), 403
+    
+    fields = CustomField.query.filter_by(password_id=p.id).all()
+    custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
     
     return jsonify({
         'id': p.id,
         'title': p.title,
-        'username': p.username,
-        'password': decrypted,
+        'username': p.login,
+        'password': p.pwd,
         'notes': p.notes,
-        'custom_fields': [{'name': f.field_name, 'value': f.field_value} for f in p.custom_fields]
+        'custom_fields': custom_fields
     })
 
 @app.route('/api/passwords', methods=['POST'])
-@login_required
 def add_password():
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
     data = request.get_json()
     
-    cipher = Fernet(base64.urlsafe_b64encode(b'0' * 32))
-    encrypted = cipher.encrypt(data.get('password', '').encode())
-    
-    p = PasswordEntry(
+    p = Password(
         user_id=session['user_id'],
         title=data['title'],
-        username=data.get('username', ''),
-        encrypted_password=encrypted.decode(),
+        login=data.get('username', ''),
+        pwd=data.get('password', ''),
         notes=data.get('notes', '')
     )
-    
     db.session.add(p)
     db.session.flush()
     
     for field in data.get('custom_fields', []):
-        if field.get('name') and field.get('value'):
+        if field.get('name'):
             cf = CustomField(
                 password_id=p.id,
                 field_name=field['name'],
-                field_value=field['value']
+                field_value=field.get('value', '')
             )
             db.session.add(cf)
     
@@ -168,29 +144,28 @@ def add_password():
     return jsonify({'id': p.id, 'success': True})
 
 @app.route('/api/passwords/<int:password_id>', methods=['PUT'])
-@login_required
 def update_password(password_id):
-    p = PasswordEntry.query.get_or_404(password_id)
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
+    
+    p = Password.query.get_or_404(password_id)
     if p.user_id != session['user_id']:
-        return jsonify({'error': 'Unauthorized'}), 403
+        return jsonify({'error': 'No permission'}), 403
     
     data = request.get_json()
     p.title = data.get('title', p.title)
-    p.username = data.get('username', p.username)
+    p.login = data.get('username', p.login)
+    p.pwd = data.get('password', p.pwd)
     p.notes = data.get('notes', p.notes)
     
-    if data.get('password'):
-        cipher = Fernet(base64.urlsafe_b64encode(b'0' * 32))
-        p.encrypted_password = cipher.encrypt(data['password'].encode()).decode()
-    
-    CustomField.query.filter_by(password_id=p.id).delete()
+    CustomField.query.filter_by(password_id=password_id).delete()
     
     for field in data.get('custom_fields', []):
-        if field.get('name') and field.get('value'):
+        if field.get('name'):
             cf = CustomField(
-                password_id=p.id,
+                password_id=password_id,
                 field_name=field['name'],
-                field_value=field['value']
+                field_value=field.get('value', '')
             )
             db.session.add(cf)
     
@@ -198,41 +173,50 @@ def update_password(password_id):
     return jsonify({'success': True})
 
 @app.route('/api/passwords/<int:password_id>', methods=['DELETE'])
-@login_required
 def delete_password(password_id):
-    p = PasswordEntry.query.get_or_404(password_id)
-    if p.user_id != session['user_id']:
-        return jsonify({'error': 'Unauthorized'}), 403
+    if 'user_id' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
     
+    p = Password.query.get_or_404(password_id)
+    if p.user_id != session['user_id']:
+        return jsonify({'error': 'No permission'}), 403
+    
+    CustomField.query.filter_by(password_id=password_id).delete()
     db.session.delete(p)
     db.session.commit()
     return jsonify({'success': True})
 
 @app.route('/api/search')
-@login_required
 def search():
+    if 'user_id' not in session:
+        return jsonify([])
+    
     query = request.args.get('q', '').lower()
     if not query:
         return jsonify([])
     
-    passwords = PasswordEntry.query.filter_by(user_id=session['user_id']).all()
+    passwords = Password.query.filter_by(user_id=session['user_id']).all()
     results = []
     
     for p in passwords:
         if (query in p.title.lower() or 
-            (p.username and query in p.username.lower()) or
+            (p.login and query in p.login.lower()) or
             (p.notes and query in p.notes.lower())):
+            
+            fields = CustomField.query.filter_by(password_id=p.id).all()
+            custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
+            
             results.append({
                 'id': p.id,
                 'title': p.title,
-                'username': p.username,
-                'notes': p.notes
+                'username': p.login,
+                'password': p.pwd,
+                'notes': p.notes,
+                'custom_fields': custom_fields
             })
     
     return jsonify(results)
 
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
     port = int(os.environ.get('PORT', 8444))
     app.run(host='0.0.0.0', port=port, debug=False)

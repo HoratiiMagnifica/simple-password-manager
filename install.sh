@@ -5,11 +5,37 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}🚀 Установка менеджера паролей...${NC}"
+echo -e "${GREEN}🚀 Установка менеджера паролей${NC}"
+echo ""
+
+# Запрашиваем данные администратора
+echo -e "${YELLOW}Введите данные для входа:${NC}"
+read -p "Логин (по умолчанию admin): " ADMIN_LOGIN
+ADMIN_LOGIN=${ADMIN_LOGIN:-admin}
+
+while true; do
+    read -s -p "Пароль: " ADMIN_PASSWORD
+    echo ""
+    read -s -p "Повторите пароль: " ADMIN_PASSWORD2
+    echo ""
+    
+    if [ "$ADMIN_PASSWORD" = "$ADMIN_PASSWORD2" ]; then
+        if [ ${#ADMIN_PASSWORD} -ge 4 ]; then
+            break
+        else
+            echo -e "${RED}Пароль должен быть минимум 4 символа${NC}"
+        fi
+    else
+        echo -e "${RED}Пароли не совпадают${NC}"
+    fi
+done
+
+echo ""
+echo -e "${GREEN}▶ Начинаю установку...${NC}"
 
 # Проверка root
 if [[ $EUID -ne 0 ]]; then
-   echo -e "${RED}Запустите с sudo: sudo ./install.sh${NC}"
+   echo -e "${RED}Ошибка: запустите с sudo${NC}"
    exit 1
 fi
 
@@ -17,23 +43,47 @@ fi
 apt update
 apt install -y python3-pip python3-venv ufw
 
-# Создание виртуального окружения
+# Переходим в папку проекта
 cd /var/www/simple-password-manager
+
+# Удаляем старую базу
+rm -f passwords.db
+
+# Создаем виртуальное окружение
 python3 -m venv venv
 source venv/bin/activate
 
-# Установка пакетов
-pip install --upgrade pip
-pip install flask flask-login flask-sqlalchemy cryptography argon2-cffi
+# Устанавливаем пакеты
+pip install flask flask-sqlalchemy
 
-# Создание .env
+# Создаем .env файл
+SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 cat > .env << EOF
-SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
-DATABASE_URL=sqlite:////var/www/simple-password-manager/passwords.db
+SECRET_KEY=$SECRET_KEY
 PORT=8444
 EOF
 
-# Создание systemd сервиса
+# Создаем нового пользователя в базе через Python
+python3 << EOF
+from app import app, db, User
+
+with app.app_context():
+    db.create_all()
+    
+    # Удаляем старого admin если есть
+    User.query.delete()
+    
+    # Создаем нового пользователя
+    user = User(
+        username='$ADMIN_LOGIN',
+        password='$ADMIN_PASSWORD'
+    )
+    db.session.add(user)
+    db.session.commit()
+    print('✅ Пользователь создан')
+EOF
+
+# Создаем systemd сервис
 cat > /etc/systemd/system/password-manager.service << EOF
 [Unit]
 Description=Password Manager
@@ -47,69 +97,39 @@ Environment="PATH=/var/www/simple-password-manager/venv/bin"
 EnvironmentFile=/var/www/simple-password-manager/.env
 ExecStart=/var/www/simple-password-manager/venv/bin/python /var/www/simple-password-manager/app.py
 Restart=always
-RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# Создание пользователя admin
-source venv/bin/activate
-python3 << EOF
-from app import app, db, User
-from argon2 import PasswordHasher
-import secrets
-import string
-
-ph = PasswordHasher()
-
-with app.app_context():
-    db.create_all()
-    
-    # Удаляем старого admin если есть
-    User.query.filter_by(username='admin').delete()
-    
-    # Генерируем пароль
-    password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(12))
-    
-    user = User(
-        username='admin',
-        password_hash=ph.hash(password)
-    )
-    db.session.add(user)
-    db.session.commit()
-    
-    with open('/root/password_manager_credentials.txt', 'w') as f:
-        f.write(f"URL: http://$(curl -s ifconfig.me):8444\n")
-        f.write(f"Login: admin\n")
-        f.write(f"Password: {password}\n")
-    
-    print(f"\n✅ Пользователь admin создан")
-EOF
-
-# Открыть порт
+# Открываем порт
 ufw allow 8444/tcp
 ufw --force enable
 
-# Запуск сервиса
+# Запускаем
 systemctl daemon-reload
-systemctl enable password-manager
+systemctl stop password-manager 2>/dev/null
 systemctl start password-manager
-sleep 3
-
-# Проверка
-if systemctl is-active --quiet password-manager; then
-    echo -e "${GREEN}✅ Сервис запущен${NC}"
-else
-    echo -e "${RED}❌ Ошибка запуска сервиса${NC}"
-    systemctl status password-manager --no-pager
-fi
+systemctl enable password-manager
 
 IP=$(curl -s ifconfig.me)
+
+echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}✅ Установка завершена!${NC}"
+echo -e "${GREEN}✅ УСТАНОВКА ЗАВЕРШЕНА!${NC}"
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}🌐 Откройте браузер: http://$IP:8444${NC}"
-echo -e "${RED}══════════════════════════════════════════════════${NC}"
-cat /root/password_manager_credentials.txt 2>/dev/null || echo -e "${RED}❌ Файл с паролем не найден${NC}"
-echo -e "${RED}══════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}🌐 Адрес: http://$IP:8444${NC}"
+echo -e "${GREEN}👤 Логин: $ADMIN_LOGIN${NC}"
+echo -e "${GREEN}🔑 Пароль: $ADMIN_PASSWORD${NC}"
+echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+
+# Сохраняем данные в файл
+cat > /root/password-manager-credentials.txt << EOF
+URL: http://$IP:8444
+Login: $ADMIN_LOGIN
+Password: $ADMIN_PASSWORD
+================================
+Сохраните эти данные в надежном месте!
+EOF
+
+echo -e "${YELLOW}📄 Данные сохранены в /root/password-manager-credentials.txt${NC}"
