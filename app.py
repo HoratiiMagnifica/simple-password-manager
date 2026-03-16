@@ -16,18 +16,36 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True)
     password = db.Column(db.String(200))
 
-class Password(db.Model):
+class BaseItem(db.Model):
+    __abstract__ = True
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer)
     title = db.Column(db.String(200))
-    login = db.Column(db.String(200))
-    pwd = db.Column(db.String(200))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_viewed = db.Column(db.DateTime)
+
+class Password(BaseItem):
+    __tablename__ = 'passwords'
+    username = db.Column(db.String(200))
+    password = db.Column(db.String(200))
+
+class Phone(BaseItem):
+    __tablename__ = 'phones'
+    phone_number = db.Column(db.String(50))
+    operator = db.Column(db.String(100))
+
+class Card(BaseItem):
+    __tablename__ = 'cards'
+    card_number = db.Column(db.String(50))
+    expiry_date = db.Column(db.String(10))
+    cvv = db.Column(db.String(10))
 
 class CustomField(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    password_id = db.Column(db.Integer)
+    item_type = db.Column(db.String(20))  # 'password', 'phone', 'card'
+    item_id = db.Column(db.Integer)
     field_name = db.Column(db.String(100))
     field_value = db.Column(db.String(200))
 
@@ -69,97 +87,182 @@ def manager():
         return redirect(url_for('login'))
     return render_template('manager.html', username=session['username'])
 
-@app.route('/api/passwords', methods=['GET'])
-def get_passwords():
+# Helper function to update last viewed
+def update_last_viewed(item):
+    item.last_viewed = datetime.utcnow()
+    db.session.commit()
+
+# Get all items
+@app.route('/api/items/<item_type>', methods=['GET'])
+def get_items(item_type):
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
-    passwords = Password.query.filter_by(user_id=session['user_id']).all()
+    model_map = {'passwords': Password, 'phones': Phone, 'cards': Card}
+    model = model_map.get(item_type)
+    if not model:
+        return jsonify({'error': 'Invalid type'}), 400
+    
+    items = model.query.filter_by(user_id=session['user_id']).all()
     result = []
-    for p in passwords:
-        fields = CustomField.query.filter_by(password_id=p.id).all()
+    for item in items:
+        fields = CustomField.query.filter_by(item_type=item_type, item_id=item.id).all()
         custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
         
-        result.append({
-            'id': p.id,
-            'title': p.title,
-            'username': p.login,
-            'notes': p.notes,
+        item_dict = {
+            'id': item.id,
+            'title': item.title,
+            'notes': item.notes,
+            'created_at': item.created_at.isoformat() if item.created_at else None,
+            'updated_at': item.updated_at.isoformat() if item.updated_at else None,
+            'last_viewed': item.last_viewed.isoformat() if item.last_viewed else None,
             'custom_fields': custom_fields
-        })
+        }
+        
+        if item_type == 'passwords':
+            item_dict['username'] = item.username
+            item_dict['password'] = item.password
+        elif item_type == 'phones':
+            item_dict['phone_number'] = item.phone_number
+            item_dict['operator'] = item.operator
+        elif item_type == 'cards':
+            item_dict['card_number'] = item.card_number
+            item_dict['expiry_date'] = item.expiry_date
+            item_dict['cvv'] = item.cvv
+        
+        result.append(item_dict)
+    
     return jsonify(result)
 
-@app.route('/api/passwords/<int:password_id>', methods=['GET'])
-def get_password(password_id):
+# Get single item
+@app.route('/api/items/<item_type>/<int:item_id>', methods=['GET'])
+def get_item(item_type, item_id):
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
-    p = Password.query.get_or_404(password_id)
-    if p.user_id != session['user_id']:
+    model_map = {'passwords': Password, 'phones': Phone, 'cards': Card}
+    model = model_map.get(item_type)
+    if not model:
+        return jsonify({'error': 'Invalid type'}), 400
+    
+    item = model.query.get_or_404(item_id)
+    if item.user_id != session['user_id']:
         return jsonify({'error': 'No permission'}), 403
     
-    fields = CustomField.query.filter_by(password_id=p.id).all()
+    # Update last viewed
+    update_last_viewed(item)
+    
+    fields = CustomField.query.filter_by(item_type=item_type, item_id=item.id).all()
     custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
     
-    return jsonify({
-        'id': p.id,
-        'title': p.title,
-        'username': p.login,
-        'password': p.pwd,
-        'notes': p.notes,
+    result = {
+        'id': item.id,
+        'title': item.title,
+        'notes': item.notes,
+        'created_at': item.created_at.isoformat() if item.created_at else None,
+        'updated_at': item.updated_at.isoformat() if item.updated_at else None,
+        'last_viewed': item.last_viewed.isoformat() if item.last_viewed else None,
         'custom_fields': custom_fields
-    })
+    }
+    
+    if item_type == 'passwords':
+        result['username'] = item.username
+        result['password'] = item.password
+    elif item_type == 'phones':
+        result['phone_number'] = item.phone_number
+        result['operator'] = item.operator
+    elif item_type == 'cards':
+        result['card_number'] = item.card_number
+        result['expiry_date'] = item.expiry_date
+        result['cvv'] = item.cvv
+    
+    return jsonify(result)
 
-@app.route('/api/passwords', methods=['POST'])
-def add_password():
+# Add item
+@app.route('/api/items/<item_type>', methods=['POST'])
+def add_item(item_type):
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
     data = request.get_json()
     
-    p = Password(
-        user_id=session['user_id'],
-        title=data['title'],
-        login=data.get('username', ''),
-        pwd=data.get('password', ''),
-        notes=data.get('notes', '')
-    )
-    db.session.add(p)
+    model_map = {'passwords': Password, 'phones': Phone, 'cards': Card}
+    model = model_map.get(item_type)
+    if not model:
+        return jsonify({'error': 'Invalid type'}), 400
+    
+    item_data = {
+        'user_id': session['user_id'],
+        'title': data['title'],
+        'notes': data.get('notes', '')
+    }
+    
+    if item_type == 'passwords':
+        item_data['username'] = data.get('username', '')
+        item_data['password'] = data.get('password', '')
+    elif item_type == 'phones':
+        item_data['phone_number'] = data.get('phone_number', '')
+        item_data['operator'] = data.get('operator', '')
+    elif item_type == 'cards':
+        item_data['card_number'] = data.get('card_number', '')
+        item_data['expiry_date'] = data.get('expiry_date', '')
+        item_data['cvv'] = data.get('cvv', '')
+    
+    item = model(**item_data)
+    db.session.add(item)
     db.session.flush()
     
     for field in data.get('custom_fields', []):
         if field.get('name'):
             cf = CustomField(
-                password_id=p.id,
+                item_type=item_type,
+                item_id=item.id,
                 field_name=field['name'],
                 field_value=field.get('value', '')
             )
             db.session.add(cf)
     
     db.session.commit()
-    return jsonify({'id': p.id, 'success': True})
+    return jsonify({'id': item.id, 'success': True})
 
-@app.route('/api/passwords/<int:password_id>', methods=['PUT'])
-def update_password(password_id):
+# Update item
+@app.route('/api/items/<item_type>/<int:item_id>', methods=['PUT'])
+def update_item(item_type, item_id):
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
-    p = Password.query.get_or_404(password_id)
-    if p.user_id != session['user_id']:
+    model_map = {'passwords': Password, 'phones': Phone, 'cards': Card}
+    model = model_map.get(item_type)
+    if not model:
+        return jsonify({'error': 'Invalid type'}), 400
+    
+    item = model.query.get_or_404(item_id)
+    if item.user_id != session['user_id']:
         return jsonify({'error': 'No permission'}), 403
     
     data = request.get_json()
-    p.title = data.get('title', p.title)
-    p.login = data.get('username', p.login)
-    p.pwd = data.get('password', p.pwd)
-    p.notes = data.get('notes', p.notes)
     
-    CustomField.query.filter_by(password_id=password_id).delete()
+    item.title = data.get('title', item.title)
+    item.notes = data.get('notes', item.notes)
+    
+    if item_type == 'passwords':
+        item.username = data.get('username', item.username)
+        item.password = data.get('password', item.password)
+    elif item_type == 'phones':
+        item.phone_number = data.get('phone_number', item.phone_number)
+        item.operator = data.get('operator', item.operator)
+    elif item_type == 'cards':
+        item.card_number = data.get('card_number', item.card_number)
+        item.expiry_date = data.get('expiry_date', item.expiry_date)
+        item.cvv = data.get('cvv', item.cvv)
+    
+    CustomField.query.filter_by(item_type=item_type, item_id=item_id).delete()
     
     for field in data.get('custom_fields', []):
         if field.get('name'):
             cf = CustomField(
-                password_id=password_id,
+                item_type=item_type,
+                item_id=item_id,
                 field_name=field['name'],
                 field_value=field.get('value', '')
             )
@@ -168,20 +271,27 @@ def update_password(password_id):
     db.session.commit()
     return jsonify({'success': True})
 
-@app.route('/api/passwords/<int:password_id>', methods=['DELETE'])
-def delete_password(password_id):
+# Delete item
+@app.route('/api/items/<item_type>/<int:item_id>', methods=['DELETE'])
+def delete_item(item_type, item_id):
     if 'user_id' not in session:
         return jsonify({'error': 'Not logged in'}), 401
     
-    p = Password.query.get_or_404(password_id)
-    if p.user_id != session['user_id']:
+    model_map = {'passwords': Password, 'phones': Phone, 'cards': Card}
+    model = model_map.get(item_type)
+    if not model:
+        return jsonify({'error': 'Invalid type'}), 400
+    
+    item = model.query.get_or_404(item_id)
+    if item.user_id != session['user_id']:
         return jsonify({'error': 'No permission'}), 403
     
-    CustomField.query.filter_by(password_id=password_id).delete()
-    db.session.delete(p)
+    CustomField.query.filter_by(item_type=item_type, item_id=item_id).delete()
+    db.session.delete(item)
     db.session.commit()
     return jsonify({'success': True})
 
+# Search across all items
 @app.route('/api/search')
 def search():
     if 'user_id' not in session:
@@ -191,24 +301,45 @@ def search():
     if not query:
         return jsonify([])
     
-    passwords = Password.query.filter_by(user_id=session['user_id']).all()
     results = []
     
+    # Search passwords
+    passwords = Password.query.filter_by(user_id=session['user_id']).all()
     for p in passwords:
         if (query in p.title.lower() or 
-            (p.login and query in p.login.lower()) or
+            (p.username and query in p.username.lower()) or
             (p.notes and query in p.notes.lower())):
-            
-            fields = CustomField.query.filter_by(password_id=p.id).all()
-            custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
-            
             results.append({
+                'type': 'password',
                 'id': p.id,
                 'title': p.title,
-                'username': p.login,
-                'password': p.pwd,
-                'notes': p.notes,
-                'custom_fields': custom_fields
+                'subtitle': p.username
+            })
+    
+    # Search phones
+    phones = Phone.query.filter_by(user_id=session['user_id']).all()
+    for p in phones:
+        if (query in p.title.lower() or 
+            (p.phone_number and query in p.phone_number) or
+            (p.operator and query in p.operator.lower())):
+            results.append({
+                'type': 'phone',
+                'id': p.id,
+                'title': p.title,
+                'subtitle': p.phone_number
+            })
+    
+    # Search cards
+    cards = Card.query.filter_by(user_id=session['user_id']).all()
+    for c in cards:
+        if (query in c.title.lower() or 
+            (c.card_number and query in c.card_number) or
+            (c.notes and query in c.notes.lower())):
+            results.append({
+                'type': 'card',
+                'id': c.id,
+                'title': c.title,
+                'subtitle': f"**** {c.card_number[-4:]}" if c.card_number else ''
             })
     
     return jsonify(results)
