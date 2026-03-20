@@ -354,6 +354,9 @@
         <div class="nav-brand">🔐 Password Manager</div>
         <div class="nav-user">
             <span>👤 {{ username }}</span>
+            {% if is_admin %}
+            <button class="users-btn" onclick="location.href='/users'" style="padding: 8px 16px; background: #2196F3; color: white; border: none; border-radius: 6px; cursor: pointer;">👥 Users</button>
+            {% endif %}
             <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
     </div>
@@ -444,6 +447,14 @@
                     <h3>Custom Fields</h3>
                     <div id="customFields"></div>
                     <button type="button" class="add-field-btn" onclick="addCustomField()">+ Add Field</button>
+                </div>
+                <div class="share-section" style="margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                    <h3>🔗 Share with users</h3>
+                    <div id="sharedUsers"></div>
+                    <button type="button" class="add-share-btn" onclick="addShareField()" style="background: #2196F3; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; margin-top: 10px;">+ Add user</button>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label><input type="checkbox" id="isPublic"> Make public (anyone can view)</label>
+                    </div>
                 </div>
 
                 <div class="copy-section" id="copySection" style="display: none;">
@@ -834,6 +845,61 @@
             if (event.target === modal) {
                 closeModal();
             }
+        }
+        async function loadUsersForShare() {
+            const res = await fetch('/api/users');
+            return await res.json();
+        }
+
+        async function addShareField(userId = '', canEdit = false) {
+            const users = await loadUsersForShare();
+            const container = document.getElementById('sharedUsers');
+            const div = document.createElement('div');
+            div.className = 'share-field';
+            div.style.display = 'flex';
+            div.style.gap = '10px';
+            div.style.marginBottom = '10px';
+            div.style.alignItems = 'center';
+            
+            const select = document.createElement('select');
+            select.className = 'share-user';
+            select.innerHTML = '<option value="">Select user</option>' + 
+                users.filter(u => u.id != currentUserId).map(u => `<option value="${u.id}" ${userId == u.id ? 'selected' : ''}>${u.username}</option>`).join('');
+            
+            const editCheck = document.createElement('input');
+            editCheck.type = 'checkbox';
+            editCheck.checked = canEdit;
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = '✕';
+            removeBtn.type = 'button';
+            removeBtn.onclick = () => div.remove();
+            removeBtn.style.background = '#f44336';
+            removeBtn.style.color = 'white';
+            removeBtn.style.border = 'none';
+            removeBtn.style.padding = '4px 8px';
+            removeBtn.style.borderRadius = '4px';
+            removeBtn.style.cursor = 'pointer';
+            
+            div.appendChild(select);
+            div.appendChild(document.createTextNode('Can edit'));
+            div.appendChild(editCheck);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+
+        function collectSharedUsers() {
+            const shares = [];
+            document.querySelectorAll('.share-field').forEach(field => {
+                const userId = field.querySelector('.share-user').value;
+                if (userId) {
+                    shares.push({
+                        user_id: parseInt(userId),
+                        can_edit: field.querySelector('input[type="checkbox"]').checked
+                    });
+                }
+            });
+            return shares;
         }
     </script>
 </body>
