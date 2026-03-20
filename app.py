@@ -110,6 +110,7 @@ def can_manage_items(f):
     return decorated_function
 
 # Проверка доступа к конкретному элементу
+# Проверка доступа к конкретному элементу
 def can_access_item(item_type, item_id, user_id, action='view'):
     user = User.query.get(user_id)
     
@@ -128,6 +129,10 @@ def can_access_item(item_type, item_id, user_id, action='view'):
         return False
     
     if item.owner_id == user_id:
+        return True
+    
+    # Проверка глобальных прав (can_view_all)
+    if action == 'view' and user.can_view_all:
         return True
     
     # Проверка публичного доступа
@@ -204,7 +209,8 @@ def logout():
 def manager():
     if 'user_id' not in session:
         return redirect(url_for('login'))
-    return render_template('manager.html', username=session['username'])
+    user = User.query.get(session['user_id'])
+    return render_template('manager.html', username=session['username'], is_admin=user.is_admin)
 
 # ============ Управление пользователями ============
 @app.route('/api/users', methods=['GET'])
@@ -304,6 +310,16 @@ def users_page():
         return redirect(url_for('manager'))
     return render_template('users.html', username=session['username'])
 
+@app.route('/api/current-user', methods=['GET'])
+@login_required
+def get_current_user():
+    user = User.query.get(session['user_id'])
+    return jsonify({
+        'id': user.id,
+        'username': user.username,
+        'is_admin': user.is_admin
+    })
+
 # ============ Получение элементов (с учетом прав) ============
 @app.route('/api/items/<item_type>', methods=['GET'])
 @login_required
@@ -376,11 +392,15 @@ def get_item(item_type, item_id):
     
     item = model.query.get_or_404(item_id)
     
+    # Проверка прав доступа
     if not can_access_item(item_type, item_id, user.id, 'view'):
         return jsonify({'error': 'No permission'}), 403
     
     fields = CustomField.query.filter_by(item_type=item_type, item_id=item.id).all()
     custom_fields = [{'name': f.field_name, 'value': f.field_value} for f in fields]
+    
+    # Определяем, показывать ли полные данные или скрытые
+    show_full = (item.owner_id == user.id or user.is_admin or user.can_view_all)
     
     result = {
         'id': item.id,
@@ -394,27 +414,29 @@ def get_item(item_type, item_id):
         'shared_with': []
     }
     
-    # Получаем список пользователей с доступом
-    perms = ItemPermission.query.filter_by(item_type=item_type, item_id=item_id).all()
-    for perm in perms:
-        shared_user = User.query.get(perm.user_id)
-        if shared_user:
-            result['shared_with'].append({
-                'id': shared_user.id,
-                'username': shared_user.username,
-                'can_edit': perm.can_edit
-            })
+    # Получаем список пользователей с доступом (только для владельца или админа)
+    if item.owner_id == user.id or user.is_admin:
+        perms = ItemPermission.query.filter_by(item_type=item_type, item_id=item_id).all()
+        for perm in perms:
+            shared_user = User.query.get(perm.user_id)
+            if shared_user:
+                result['shared_with'].append({
+                    'id': shared_user.id,
+                    'username': shared_user.username,
+                    'can_edit': perm.can_edit
+                })
     
+    # Заполняем поля в зависимости от типа
     if item_type == 'passwords':
-        result['username'] = item.username
-        result['password'] = item.password
+        result['username'] = item.username if show_full else ''
+        result['password'] = item.password if show_full else '********'
     elif item_type == 'phones':
-        result['phone_number'] = item.phone_number
-        result['operator'] = item.operator
+        result['phone_number'] = item.phone_number if show_full else ''
+        result['operator'] = item.operator if show_full else ''
     elif item_type == 'cards':
-        result['card_number'] = item.card_number
-        result['expiry_date'] = item.expiry_date
-        result['cvv'] = item.cvv
+        result['card_number'] = item.card_number if show_full else '****' + item.card_number[-4:] if item.card_number else ''
+        result['expiry_date'] = item.expiry_date if show_full else '**/**'
+        result['cvv'] = item.cvv if show_full else '***'
     
     return jsonify(result)
 
