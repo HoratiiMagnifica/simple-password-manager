@@ -37,6 +37,20 @@
             gap: 20px;
         }
 
+        .users-btn {
+            padding: 8px 16px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .users-btn:hover {
+            background: #1976D2;
+        }
+
         .logout-btn {
             padding: 8px 16px;
             background: #f44336;
@@ -343,9 +357,48 @@
             color: #999;
         }
 
-        .item-type-icon {
-            display: inline-block;
-            margin-right: 5px;
+        .share-section {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+
+        .share-field {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+            align-items: center;
+        }
+
+        .share-field select {
+            flex: 2;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .share-field button {
+            background: #f44336;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .add-share-btn {
+            background: #2196F3;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .add-share-btn:hover {
+            background: #1976D2;
         }
     </style>
 </head>
@@ -354,6 +407,7 @@
         <div class="nav-brand">🔐 Password Manager</div>
         <div class="nav-user">
             <span>👤 {{ username }}</span>
+            <button id="usersBtn" class="users-btn" style="display: none;" onclick="location.href='/users'">👥 Users</button>
             <button class="logout-btn" onclick="logout()">Logout</button>
         </div>
     </div>
@@ -446,6 +500,15 @@
                     <button type="button" class="add-field-btn" onclick="addCustomField()">+ Add Field</button>
                 </div>
 
+                <div class="share-section">
+                    <h3>🔗 Share with users</h3>
+                    <div id="sharedUsers"></div>
+                    <button type="button" class="add-share-btn" onclick="addShareField()">+ Add user</button>
+                    <div class="form-group" style="margin-top: 10px;">
+                        <label><input type="checkbox" id="isPublic"> Make public (anyone can view)</label>
+                    </div>
+                </div>
+
                 <div class="copy-section" id="copySection" style="display: none;">
                     <h4>📋 Copy All Fields</h4>
                     <button type="button" class="copy-btn" onclick="copyAllFields()">Copy All</button>
@@ -463,10 +526,29 @@
         let currentItemId = null;
         let currentItemType = 'passwords';
         let searchTimeout = null;
+        let currentUserId = null;
+        let allUsers = [];
 
-        document.addEventListener('DOMContentLoaded', () => {
+        // Проверка прав администратора при загрузке
+        document.addEventListener('DOMContentLoaded', async () => {
             loadItems('passwords');
+            await checkAdminStatus();
         });
+
+        async function checkAdminStatus() {
+            try {
+                const response = await fetch('/api/current-user');
+                if (response.ok) {
+                    const user = await response.json();
+                    currentUserId = user.id;
+                    if (user.is_admin) {
+                        document.getElementById('usersBtn').style.display = 'block';
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking admin status:', error);
+            }
+        }
 
         document.getElementById('searchInput').addEventListener('input', function() {
             clearTimeout(searchTimeout);
@@ -576,6 +658,8 @@
             document.getElementById('itemId').value = '';
             document.getElementById('itemType').value = currentItemType;
             document.getElementById('customFields').innerHTML = '';
+            document.getElementById('sharedUsers').innerHTML = '';
+            document.getElementById('isPublic').checked = false;
             document.getElementById('deleteBtn').style.display = 'none';
             document.getElementById('timestampInfo').style.display = 'none';
             document.getElementById('copySection').style.display = 'none';
@@ -601,6 +685,7 @@
                 document.getElementById('itemType').value = type;
                 document.getElementById('title').value = item.title || '';
                 document.getElementById('notes').value = item.notes || '';
+                document.getElementById('isPublic').checked = item.is_public || false;
                 
                 // Show timestamps
                 document.getElementById('createdAt').textContent = item.created_at ? new Date(item.created_at).toLocaleString() : 'Never';
@@ -640,11 +725,32 @@
                     });
                 }
                 
+                // Load shared users
+                await loadSharedUsers(type, id);
+                
                 document.getElementById('deleteBtn').style.display = 'block';
                 document.getElementById('itemModal').classList.add('active');
             } catch (error) {
                 console.error('Error loading item:', error);
                 alert('Error loading item');
+            }
+        }
+
+        async function loadSharedUsers(type, id) {
+            try {
+                const response = await fetch(`/api/items/${type}/${id}`);
+                const item = await response.json();
+                
+                const container = document.getElementById('sharedUsers');
+                container.innerHTML = '';
+                
+                if (item.shared_with && item.shared_with.length > 0) {
+                    for (const share of item.shared_with) {
+                        await addShareField(share.id, share.can_edit);
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading shared users:', error);
             }
         }
 
@@ -668,11 +774,9 @@
             let text = '';
             const type = document.getElementById('itemType').value;
             
-            // Название
             const title = document.getElementById('title')?.value || '';
             text += `Title: ${title}\n`;
             
-            // В зависимости от типа
             if (type === 'passwords') {
                 const username = document.getElementById('username')?.value || '';
                 const password = document.getElementById('password')?.value || '';
@@ -694,13 +798,11 @@
                 text += `CVV: ${cvv}\n`;
             }
             
-            // Заметки
             const notes = document.getElementById('notes')?.value || '';
             if (notes) {
                 text += `Notes: ${notes}\n`;
             }
             
-            // Кастомные поля
             const customFields = document.querySelectorAll('.custom-field');
             if (customFields.length > 0) {
                 text += `\n--- Custom Fields ---\n`;
@@ -713,7 +815,6 @@
                 });
             }
             
-            // СОЗДАЕМ ВРЕМЕННОЕ ПОЛЕ ДЛЯ КОПИРОВАНИЯ
             const textarea = document.createElement('textarea');
             textarea.value = text;
             textarea.style.position = 'fixed';
@@ -721,26 +822,83 @@
             textarea.style.left = '-9999px';
             textarea.style.top = '0';
             document.body.appendChild(textarea);
-            
-            // ВЫДЕЛЯЕМ ТЕКСТ
             textarea.select();
             textarea.setSelectionRange(0, 99999);
             
-            // КОПИРУЕМ
             try {
                 const successful = document.execCommand('copy');
                 if (successful) {
-                    alert('✅ Скопировано в буфер обмена!');
+                    alert('✅ Copied to clipboard!');
                 } else {
-                    alert('❌ Не удалось скопировать. Выделите текст вручную:\n\n' + text);
+                    alert('❌ Failed to copy. Select text manually:\n\n' + text);
                 }
             } catch (err) {
-                console.error('Ошибка копирования:', err);
-                alert('❌ Ошибка копирования. Выделите текст вручную:\n\n' + text);
+                console.error('Copy error:', err);
+                alert('❌ Copy error. Select text manually:\n\n' + text);
             }
-            
-            // УДАЛЯЕМ ВРЕМЕННОЕ ПОЛЕ
             document.body.removeChild(textarea);
+        }
+
+        async function loadUsersForShare() {
+            const res = await fetch('/api/users');
+            allUsers = await res.json();
+            return allUsers;
+        }
+
+        async function addShareField(userId = '', canEdit = false) {
+            const users = await loadUsersForShare();
+            const container = document.getElementById('sharedUsers');
+            const div = document.createElement('div');
+            div.className = 'share-field';
+            
+            const select = document.createElement('select');
+            select.className = 'share-user';
+            select.style.flex = '2';
+            select.style.padding = '8px';
+            select.style.border = '1px solid #ddd';
+            select.style.borderRadius = '4px';
+            select.innerHTML = '<option value="">Select user</option>' + 
+                users.filter(u => u.id != currentUserId).map(u => `<option value="${u.id}" ${userId == u.id ? 'selected' : ''}>${escapeHtml(u.username)}</option>`).join('');
+            
+            const editLabel = document.createElement('label');
+            editLabel.style.display = 'flex';
+            editLabel.style.alignItems = 'center';
+            editLabel.style.gap = '5px';
+            const editCheck = document.createElement('input');
+            editCheck.type = 'checkbox';
+            editCheck.checked = canEdit;
+            editLabel.appendChild(editCheck);
+            editLabel.appendChild(document.createTextNode('Can edit'));
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = '✕';
+            removeBtn.type = 'button';
+            removeBtn.style.background = '#f44336';
+            removeBtn.style.color = 'white';
+            removeBtn.style.border = 'none';
+            removeBtn.style.padding = '4px 8px';
+            removeBtn.style.borderRadius = '4px';
+            removeBtn.style.cursor = 'pointer';
+            removeBtn.onclick = () => div.remove();
+            
+            div.appendChild(select);
+            div.appendChild(editLabel);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+
+        function collectSharedUsers() {
+            const shares = [];
+            document.querySelectorAll('.share-field').forEach(field => {
+                const userId = field.querySelector('.share-user').value;
+                if (userId) {
+                    shares.push({
+                        user_id: parseInt(userId),
+                        can_edit: field.querySelector('input[type="checkbox"]').checked
+                    });
+                }
+            });
+            return shares;
         }
 
         document.getElementById('itemForm').addEventListener('submit', async (e) => {
@@ -759,7 +917,9 @@
             const itemData = {
                 title: document.getElementById('title').value,
                 notes: document.getElementById('notes').value,
-                custom_fields: customFields
+                custom_fields: customFields,
+                is_public: document.getElementById('isPublic').checked,
+                shared_with: collectSharedUsers()
             };
 
             if (type === 'passwords') {
@@ -791,7 +951,8 @@
                     closeModal();
                     loadItems(type);
                 } else {
-                    alert('Error saving item');
+                    const err = await response.json();
+                    alert(err.error || 'Error saving item');
                 }
             } catch (error) {
                 console.error('Error saving item:', error);
